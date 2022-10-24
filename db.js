@@ -1,4 +1,6 @@
 const Sequelize = require('sequelize');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcrypt');
 const { STRING } = Sequelize;
 const config = {
   logging: false
@@ -14,9 +16,24 @@ const User = conn.define('user', {
   password: STRING
 });
 
+const SALT_NUMBER = 5;
+
+User.beforeCreate(async (user) => {
+  user.password =  await bcrypt.hash(user.password, SALT_NUMBER);
+});
+
+// Other way of hashing the password
+// User.beforeCreate((user) => {
+//    bcrypt.hash(user.password, SALT_NUMBER, function(err, hash) {
+//     user.password = hash;
+//     user.save();
+//   });
+// });
+
 User.byToken = async(token)=> {
   try {
-    const user = await User.findByPk(token);
+    const { userId } = jwt.verify(token, process.env.JWT);
+    const user = await User.findByPk(userId);
     if(user){
       return user;
     }
@@ -32,15 +49,17 @@ User.byToken = async(token)=> {
 };
 
 User.authenticate = async({ username, password })=> {
-  const user = await User.findOne({
+  const db_user = await User.findOne({
     where: {
-      username,
-      password
+      username
     }
   });
-  if(user){
-    return user.id;
+
+  const is_the_same = await bcrypt.compare(password, db_user.password);
+  if(db_user && is_the_same){
+    return jwt.sign({ userId: db_user.id }, process.env.JWT);
   }
+
   const error = Error('bad credentials');
   error.status = 401;
   throw error;
